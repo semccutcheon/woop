@@ -14,14 +14,25 @@ struct DedupError;
 struct Window<T> {
     window: VecDeque<T>,
     window_size: usize,
+    next_window: Option<Box<Window<T>>>,
 }
 
 impl<T: PartialEq> Window<T>
 {
     fn new(size: usize) -> Self {
-        Window {
-            window: VecDeque::new(),
-            window_size: size,
+        if size == 1 {
+            return Window {
+                window: VecDeque::new(),
+                window_size: size,
+                next_window: None,
+            };
+        }
+        else {
+            return Window {
+                window: VecDeque::new(),
+                window_size: size,
+                next_window: Some(Box::new(Window::new(size-1))),
+            };
         }
     }
 
@@ -51,7 +62,12 @@ impl<T: PartialEq> Window<T>
             }
             else {
                 let emitted_line = self.window.pop_front().expect("window did not contain a value");
-                return Some(emitted_line);
+                if self.next_window.is_some() {
+                    return self.next_window.as_mut().unwrap().push(emitted_line);
+                }
+                else {
+                    return Some(emitted_line);
+                }
             }
         } else {
             return None;
@@ -59,8 +75,18 @@ impl<T: PartialEq> Window<T>
 
     }
 
-    fn flush(&mut self) -> impl Iterator<Item = T> + '_ {
-        return self.window.drain(..);
+    fn flush(&mut self) -> Vec<T> {
+        if self.next_window.is_some() {
+            let mut flushed : Vec<T> = self.window.drain(..).filter_map(|l| {
+                self.next_window.as_mut().unwrap().push(l)
+            }).collect();
+            let mut drained : Vec<T> = self.next_window.as_mut().unwrap().flush();
+            flushed.append(&mut drained);
+            return flushed;
+        } else {
+            return self.window.drain(..).collect();
+        }
+
     }
 
 }
@@ -68,7 +94,7 @@ impl<T: PartialEq> Window<T>
 fn dedup() {
     // Should be a circular buffer or something which re-uses an array
     let mut f = File::create("out.txt").expect("Unable to open output file");
-    let mut window: Window<String> = Window::new(5);
+    let mut window: Window<String> = Window::new(100);
     for line in open_input().lines().map(|l| l.unwrap()) {
         if let Some(emitted_line) = window.push(line) {
             writeln!(f, "{}", emitted_line).expect("Problem writing out to file");
